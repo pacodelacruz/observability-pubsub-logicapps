@@ -1,0 +1,37 @@
+traces
+| where operation_Name == "FlowRunLastJob"
+| extend resource = parse_json(tostring(parse_json(tostring(customDimensions.prop__properties)).resource))
+| extend error = parse_json(tostring(customDimensions.prop__error))
+| project timestamp
+    , LogicApp = tostring(cloud_RoleName)
+    , Workflow = tostring(resource.workflowName)
+    , WorkflowRunId = tostring(customDimensions.prop__flowRunSequenceId)
+    , ClientTrackingId = tostring(customDimensions.prop__clientTrackingId)
+    , WorkflowStatus = customDimensions.prop__status
+    , ErrorCode = error.code
+    , ErrorMessage = error.message   
+| join kind = leftouter ( // trackedProperties
+    traces
+    | where customDimensions.prop__properties has "trackedProperties"
+    | extend trackedProperties = parse_json(tostring(parse_json(tostring(customDimensions.prop__properties)).trackedProperties))
+    | project InterfaceId = trackedProperties.InterfaceId
+        , WorkflowRunId = tostring(customDimensions.prop__flowRunSequenceId)
+    | where isnotnull(InterfaceId)
+    )
+    on $left.WorkflowRunId == $right.WorkflowRunId
+| project timestamp
+    , InterfaceId
+    , LogicApp
+    , Workflow
+    , WorkflowRunId
+    , ClientTrackingId
+    , WorkflowStatus
+    , ErrorCode
+    , ErrorMessage
+| sort by timestamp desc
+//| where InterfaceId contains ""
+//| where ClientTrackingId contains ""
+//| where LogicApp contains ""
+//| where Workflow contains ""
+| where WorkflowStatus == "Failed"
+//| where WorkflowStatus == "Cancelled"

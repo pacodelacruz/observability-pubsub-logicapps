@@ -1,0 +1,316 @@
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "actions": {
+            "For_each_message_in_batch": {
+                "type": "Foreach",
+                "foreach": "@body('Parse_Request_Payload')?['data']",
+                "actions": {
+                    "Enrich_message": {
+                        "type": "Workflow",
+                        "inputs": {
+                            "host": {
+                                "workflow": {
+                                    "id": "user-updated-pub-enricher"
+                                }
+                            },
+                            "headers": {
+                                "x-client-tracking-id ": "@body('Parse_message')?['email']"
+                            },
+                            "body": "@body('Parse_message')"
+                        },
+                        "runAfter": {
+                            "Parse_message": [
+                                "Succeeded"
+                            ]
+                        }
+                    },
+                    "Parse_message": {
+                        "type": "ParseJson",
+                        "inputs": {
+                            "content": "@items('For_each_message_in_batch')",
+                            "schema": {
+                                "properties": {
+                                    "email": {
+                                        "type": "string"
+                                    },
+                                    "familyName": {
+                                        "type": "string"
+                                    },
+                                    "givenName": {
+                                        "type": "string"
+                                    },
+                                    "id": {
+                                        "type": "integer"
+                                    },
+                                    "phoneNumber": {
+                                        "type": "string"
+                                    },
+                                    "role": {
+                                        "type": "string"
+                                    },
+                                    "timestamp": {
+                                        "type": "string"
+                                    },
+                                    "userName": {
+                                        "type": "string"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        },
+                        "runAfter": {},
+                        "description": "Parse each individual record"
+                    },
+                    "Send_message": {
+                        "type": "ApiConnection",
+                        "inputs": {
+                            "host": {
+                                "connection": {
+                                    "referenceName": "servicebus_1"
+                                }
+                            },
+                            "method": "post",
+                            "body": {
+                                "ContentData": "@{base64(outputs('Enrich_message')?['body'])}",
+                                "ContentType": "application/json",
+                                "Properties": {
+                                    "BatchId": "@{body('Parse_Request_Payload')?['id']}",
+                                    "ClientTrackingId": "@{body('Parse_message')?['email']}",
+                                    "CorrelationWorkflowRunId": "@{workflow()?['run']?['name']}",
+                                    "EntityId": "@{body('Parse_message')?['id']}"
+                                },
+                                "MessageId": "@{body('Parse_Request_Payload')?['id']}|@{body('Parse_message')?['id']}"
+                            },
+                            "path": "/@{encodeURIComponent(encodeURIComponent('user-updated'))}/messages",
+                            "queries": {
+                                "systemProperties": "None"
+                            },
+                            "parameters": {
+                                "entityName": "user-updated",
+                                "message": {
+                                    "contentData": "@outputs('Enrich_message')?['body']",
+                                    "contentType": "application/json",
+                                    "UserProperties": {
+                                        "BatchId": "@{body('Parse_Request_Payload')['id']}",
+                                        "ClientTrackingId": "@{body('Parse_message')?['email']}",
+                                        "CorrelationWorkflowRunId": "@{workflow()?['run']?['name']}",
+                                        "EntityId": "@{body('Parse_message')?['id']}"
+                                    },
+                                    "messageId": "@{body('Parse_Request_Payload')?['id']}|@{body('Parse_message')?['id']}"
+                                }
+                            },
+                            "serviceProviderConfiguration": {
+                                "connectionName": "serviceBus",
+                                "operationId": "sendMessage",
+                                "serviceProviderId": "/serviceProviders/serviceBus"
+                            }
+                        },
+                        "runAfter": {
+                            "Enrich_message": [
+                                "Succeeded"
+                            ]
+                        }
+                    }
+                },
+                "runAfter": {
+                    "Parse_Request_Payload": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "Parse_Request_Payload": {
+                "type": "ParseJson",
+                "inputs": {
+                    "content": "@triggerBody()",
+                    "schema": {
+                        "properties": {
+                            "data": {
+                                "items": {
+                                    "properties": {
+                                        "email": {
+                                            "type": "string"
+                                        },
+                                        "familyName": {
+                                            "type": "string"
+                                        },
+                                        "givenName": {
+                                            "type": "string"
+                                        },
+                                        "id": {
+                                            "type": "integer"
+                                        },
+                                        "phoneNumber": {
+                                            "type": "string"
+                                        },
+                                        "role": {
+                                            "type": "string"
+                                        },
+                                        "timestamp": {
+                                            "type": "string"
+                                        },
+                                        "userName": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "id",
+                                        "userName",
+                                        "email",
+                                        "role",
+                                        "givenName",
+                                        "familyName",
+                                        "phoneNumber",
+                                        "timestamp"
+                                    ],
+                                    "type": "object"
+                                },
+                                "minItems": 1,
+                                "type": "array"
+                            },
+                            "datacontenttype": {
+                                "type": "string"
+                            },
+                            "id": {
+                                "type": "string"
+                            },
+                            "source": {
+                                "type": "string"
+                            },
+                            "specversion": {
+                                "type": "string"
+                            },
+                            "subject": {},
+                            "time": {
+                                "type": "string"
+                            },
+                            "type": {
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "data",
+                            "datacontenttype",
+                            "id",
+                            "source",
+                            "specversion",
+                            "time",
+                            "type"
+                        ],
+                        "type": "object"
+                    }
+                },
+                "runAfter": {
+                    "Trace_workflow_metadata": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "Return_202_response": {
+                "type": "Response",
+                "kind": "http",
+                "inputs": {
+                    "statusCode": 202,
+                    "body": {
+                        "ActivityId": "@{workflow().run.name}",
+                        "Message": "Accepted",
+                        "StatusCode": 202
+                    }
+                },
+                "runAfter": {
+                    "For_each_message_in_batch": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "Return_400_BadRequest_response": {
+                "type": "Response",
+                "kind": "http",
+                "inputs": {
+                    "statusCode": 400,
+                    "body": {
+                        "ActivityId": "@{workflow().run.name}",
+                        "Message": "Bad request. Invalid message.",
+                        "StatusCode": 400
+                    }
+                },
+                "runAfter": {
+                    "Parse_Request_Payload": [
+                        "Failed"
+                    ]
+                }
+            },
+            "Return_500_response": {
+                "type": "Response",
+                "kind": "http",
+                "inputs": {
+                    "statusCode": 500,
+                    "body": {
+                        "ActivityId": "@{workflow().run.name}",
+                        "Message": "Internal Server Error",
+                        "StatusCode": 500
+                    }
+                },
+                "runAfter": {
+                    "For_each_message_in_batch": [
+                        "FAILED",
+                        "TIMEDOUT"
+                    ]
+                }
+            },
+            "Terminate_as_Failed_(PublisherDeliveryFailed_InternalException)": {
+                "type": "Terminate",
+                "inputs": {
+                    "runStatus": "Failed",
+                    "runError": {
+                        "code": "PublisherDeliveryFailed_InternalException",
+                        "message": "An exception occurred while processing the message for publishing."
+                    }
+                },
+                "runAfter": {
+                    "Return_500_response": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "Terminate_as_Failed_(PublisherReceiptFailed_InvalidMessage)": {
+                "type": "Terminate",
+                "inputs": {
+                    "runStatus": "Failed",
+                    "runError": {
+                        "code": "PublisherReceiptFailed_InvalidMessage",
+                        "message": "An exception occurred while receiving a message in publisher endpoint due to an invalid HTTP request. "
+                    }
+                },
+                "runAfter": {
+                    "Return_400_BadRequest_response": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "Trace_workflow_metadata": {
+                "type": "Compose",
+                "inputs": {
+                    "InterfaceId": "USER.SVC01.P01v1"
+                },
+                "runAfter": {},
+                "trackedProperties": {
+                    "InterfaceId": "@{outputs('Trace_workflow_metadata')?['InterfaceId']}"
+                }
+            }
+        },
+        "triggers": {
+            "manual": {
+                "type": "Request",
+                "kind": "Http",
+                "inputs": {},
+                "correlation": {
+                    "clientTrackingId": "@coalesce(triggerBody()?['id'], guid())"
+                }
+            }
+        },
+        "contentVersion": "1.0.0.0",
+        "outputs": {}
+    },
+    "kind": "Stateful"
+}

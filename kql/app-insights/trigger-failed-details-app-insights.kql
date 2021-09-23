@@ -1,0 +1,22 @@
+traces
+| where customDimensions.EventName == "WorkflowTriggerEnd"
+| where customDimensions.prop__status == "Failed"
+| sort by timestamp desc 
+| extend properties = parse_json(tostring(customDimensions.prop__properties))
+| extend resource = parse_json(tostring(parse_json(tostring(customDimensions.prop__properties)).resource))
+| extend error = parse_json(tostring(customDimensions.prop__error))
+| sort by timestamp desc
+| project timestamp
+        , LogicApp = tostring(cloud_RoleName)
+        , Workflow = tostring(resource.workflowName)
+        , WorkflowRunId = tostring(customDimensions.prop__clientTrackingId)
+        , TriggerStatusCode = properties.code
+        , ErrorCode = tostring(error.code)
+        , ErrorMessage = tostring(error.message)
+        , message
+//| where LogicApp contains ""
+//| where Workflow contains ""
+//| where TriggerStatusCode == ""
+//| where ErrorCode == ""
+//| where ErrorMessage contains ""
+//| where Message contains ""

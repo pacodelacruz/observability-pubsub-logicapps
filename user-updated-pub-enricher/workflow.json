@@ -1,0 +1,87 @@
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "actions": {
+            "Enrich": {
+                "type": "Compose",
+                "inputs": {
+                    "email": "@{body('Parse_JSON')?['email']}",
+                    "familyName": "@{body('Parse_JSON')?['familyName']}",
+                    "givenName": "@{body('Parse_JSON')?['givenName']}",
+                    "id": "@body('Parse_JSON')?['id']",
+                    "phoneNumber": "@{body('Parse_JSON')?['phoneNumber']}",
+                    "role": "@{body('Parse_JSON')?['role']}",
+                    "timestamp": "@{formatDateTime(utcNow(), 'yyyy-MM-ddTHH:mm:ssZ')}",
+                    "userName": "@{body('Parse_JSON')?['userName']}"
+                },
+                "runAfter": {
+                    "Parse_JSON": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "Parse_JSON": {
+                "type": "ParseJson",
+                "inputs": {
+                    "content": "@triggerBody()",
+                    "schema": {
+                        "properties": {
+                            "email": {
+                                "type": "string"
+                            },
+                            "familyName": {
+                                "type": "string"
+                            },
+                            "givenName": {
+                                "type": "string"
+                            },
+                            "id": {
+                                "type": "integer"
+                            },
+                            "phoneNumber": {
+                                "type": "string"
+                            },
+                            "role": {
+                                "type": "string"
+                            },
+                            "timestamp": {
+                                "type": "string"
+                            },
+                            "userName": {
+                                "type": "string"
+                            }
+                        },
+                        "type": "object"
+                    }
+                },
+                "runAfter": {}
+            },
+            "Return_enriched_object": {
+                "type": "Response",
+                "kind": "http",
+                "inputs": {
+                    "statusCode": 200,
+                    "body": "@outputs('Enrich')"
+                },
+                "runAfter": {
+                    "Enrich": [
+                        "Succeeded"
+                    ]
+                }
+            }
+        },
+        "triggers": {
+            "manual": {
+                "type": "Request",
+                "kind": "Http",
+                "inputs": {},
+                "correlation": {
+                    "clientTrackingId": "@{coalesce(triggerOutputs()?['headers']?['x-client-tracking-id'], guid())}"
+                }
+            }
+        },
+        "contentVersion": "1.0.0.0",
+        "outputs": {}
+    },
+    "kind": "Stateful"
+}

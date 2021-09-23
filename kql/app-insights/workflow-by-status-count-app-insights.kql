@@ -1,0 +1,11 @@
+traces
+| where operation_Name == "FlowRunLastJob"
+| extend resource = parse_json(tostring(parse_json(tostring(customDimensions.prop__properties)).resource))
+| project timestamp
+        , LogicApp = tostring(cloud_RoleName)
+        , Workflow = tostring(resource.workflowName)
+        , WorkflowStatus = tostring(customDimensions.prop__status)
+| where WorkflowStatus == "Failed"
+| summarize Count = count()
+        by   bin(timestamp, 1d)
+           , Workflow
