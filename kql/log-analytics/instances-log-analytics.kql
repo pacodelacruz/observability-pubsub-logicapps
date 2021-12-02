@@ -1,0 +1,10 @@
+AppTraces 
+| where OperationName == "FlowRunLastJob"
+| extend resource = parse_json(tostring(parse_json(tostring(Properties.prop__properties)).resource))
+| project TimeGenerated
+    , LogicApp = tostring(AppRoleName)
+    , Workflow = tostring(resource.workflowName)
+    , WorkflowRunId = tostring(resource.runId)
+    , ClientTrackingId = tostring(Properties.prop__clientTrackingId)
+    , WorkflowStatus = tostring(Properties.prop__status)
+| sort by TimeGenerated desc

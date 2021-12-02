@@ -1,0 +1,17 @@
+// Logic App instances with workflow run id, client tracking id, and workflow final status.  
+traces
+| where operation_Name == "FlowRunLastJob"
+| extend resource = parse_json(tostring(parse_json(tostring(customDimensions.prop__properties)).resource))
+| project timestamp
+    , LogicApp = tostring(cloud_RoleName)
+    , Workflow = tostring(resource.workflowName)
+    , WorkflowRunId = tostring(customDimensions.prop__flowRunSequenceId)
+    , ClientTrackingId = tostring(customDimensions.prop__clientTrackingId)
+    , WorkflowStatus = customDimensions.prop__status
+| sort by timestamp desc
+//| where LogicApp contains ""
+//| where Workflow contains ""
+//| where ClientTrackingId contains ""
+//| where WorkflowStatus == "Succeeded"
+//| where WorkflowStatus == "Failed"
+//| where WorkflowStatus == "Cancelled"
