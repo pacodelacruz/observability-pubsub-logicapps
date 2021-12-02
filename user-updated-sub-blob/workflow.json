@@ -2,34 +2,11 @@
     "definition": {
         "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
         "actions": {
-            "Complete_the_message_in_a_queue": {
-                "description": "Settle the message in the queue as complete. This action deletes the message as it has been processed successfully.",
-                "inputs": {
-                    "host": {
-                        "connection": {
-                            "referenceName": "servicebus"
-                        }
-                    },
-                    "method": "delete",
-                    "path": "/@{encodeURIComponent(encodeURIComponent('user-updated'))}/messages/complete",
-                    "queries": {
-                        "lockToken": "@triggerBody()?['LockToken']",
-                        "queueType": "Main",
-                        "sessionId": ""
-                    }
-                },
-                "runAfter": {
-                    "Save_to_Blob_Storage": [
-                        "Succeeded"
-                    ]
-                },
-                "type": "ApiConnection"
-            },
-            "Delay_to_flush_asynchronous_tracing": {
+            "Delay": {
                 "description": "This delay is required so that the workflow metadata tracing is persisted. In many cases, a terminate action prevents tracking properties to be persisted. ",
                 "inputs": {
                     "interval": {
-                        "count": 5,
+                        "count": 10,
                         "unit": "Second"
                     }
                 },
@@ -39,6 +16,202 @@
                     ]
                 },
                 "type": "Wait"
+            },
+            "If_simulate_a_failed_delivery_attempt": {
+                "actions": {
+                    "Switch_to_simulate_a_failed_delivery_attempt_to_target_system": {
+                        "cases": {
+                            "Invalid_message_(09)": {
+                                "actions": {
+                                    "Dead-letter_the_message_in_a_queue": {
+                                        "inputs": {
+                                            "host": {
+                                                "connection": {
+                                                    "referenceName": "servicebus"
+                                                }
+                                            },
+                                            "method": "post",
+                                            "path": "/@{encodeURIComponent(encodeURIComponent('user-updated'))}/messages/deadletter",
+                                            "queries": {
+                                                "deadLetterErrorDescription": "Missing required fields",
+                                                "deadLetterReason": "Invalid message",
+                                                "lockToken": "@triggerBody()?['LockToken']",
+                                                "sessionId": ""
+                                            }
+                                        },
+                                        "runAfter": {},
+                                        "type": "ApiConnection"
+                                    },
+                                    "Terminate_after_SubscriberDeliveryFailed_InvalidMessage": {
+                                        "inputs": {
+                                            "runError": {
+                                                "code": "SubscriberDeliveryFailed_InvalidMessage",
+                                                "message": "Invalid message. Message has been dead-lettered."
+                                            },
+                                            "runStatus": "Failed"
+                                        },
+                                        "runAfter": {
+                                            "Dead-letter_the_message_in_a_queue": [
+                                                "Succeeded"
+                                            ]
+                                        },
+                                        "type": "Terminate"
+                                    }
+                                },
+                                "case": "09"
+                            },
+                            "Missing_dependency_(07)": {
+                                "actions": {
+                                    "If_first_attempt": {
+                                        "actions": {
+                                            "Terminate_after_SubscriberDeliveryFailed_MissingDependency": {
+                                                "inputs": {
+                                                    "runError": {
+                                                        "code": "SubscriberDeliveryFailed_MissingDependency",
+                                                        "message": "Dependency in target system is not available. DeliveryCount: @{triggerBody()?['Properties']?['DeliveryCount']}. Message has not been settled. If max delivery count has not been reached, a retry is expected. "
+                                                    },
+                                                    "runStatus": "Failed"
+                                                },
+                                                "runAfter": {},
+                                                "type": "Terminate"
+                                            }
+                                        },
+                                        "expression": {
+                                            "and": [
+                                                {
+                                                    "equals": [
+                                                        "@{triggerBody()?['Properties']?['DeliveryCount']}",
+                                                        "1"
+                                                    ]
+                                                }
+                                            ]
+                                        },
+                                        "runAfter": {},
+                                        "type": "If"
+                                    }
+                                },
+                                "case": "07"
+                            },
+                            "Stale_message_(08)": {
+                                "actions": {
+                                    "Complete_the_stale_message_in_a_queue": {
+                                        "inputs": {
+                                            "host": {
+                                                "connection": {
+                                                    "referenceName": "servicebus"
+                                                }
+                                            },
+                                            "method": "delete",
+                                            "path": "/@{encodeURIComponent(encodeURIComponent('user-updated'))}/messages/complete",
+                                            "queries": {
+                                                "lockToken": "@triggerBody()?['LockToken']",
+                                                "queueType": "Main",
+                                                "sessionId": ""
+                                            }
+                                        },
+                                        "runAfter": {},
+                                        "type": "ApiConnection"
+                                    },
+                                    "Terminate_after_SubscriberDeliveryDiscardedStaleMessage": {
+                                        "inputs": {
+                                            "runStatus": "Cancelled"
+                                        },
+                                        "runAfter": {
+                                            "Complete_the_stale_message_in_a_queue": [
+                                                "Succeeded"
+                                            ]
+                                        },
+                                        "type": "Terminate"
+                                    }
+                                },
+                                "case": "08"
+                            },
+                            "Unable_to_reach_target_system_(06)": {
+                                "actions": {
+                                    "Terminate_after_SubscriberDeliveryFailed_UnreachableTarget": {
+                                        "description": "Terminate and do not settle the message for a retry or automatic dead-lettering",
+                                        "inputs": {
+                                            "runError": {
+                                                "code": "SubscriberDeliveryFailed_UnreachableTarget",
+                                                "message": "Target system is unreachable. DeliveryCount: @{triggerBody()?['Properties']?['DeliveryCount']}. Message has not been settled. If max delivery count has not been reached, a retry is expected. "
+                                            },
+                                            "runStatus": "Failed"
+                                        },
+                                        "runAfter": {},
+                                        "type": "Terminate"
+                                    }
+                                },
+                                "case": "06"
+                            }
+                        },
+                        "default": {
+                            "actions": {}
+                        },
+                        "description": "Simulate delivery attempt to target system",
+                        "expression": "@{substring(body('Parse_message')?['phoneNumber'], sub(length(body('Parse_message')?['phoneNumber']), 2))}",
+                        "runAfter": {},
+                        "type": "Switch"
+                    }
+                },
+                "else": {
+                    "actions": {
+                        "Complete_the_message_in_a_queue": {
+                            "description": "Settle the message in the queue as complete. This action deletes the message as it has been processed successfully.",
+                            "inputs": {
+                                "host": {
+                                    "connection": {
+                                        "referenceName": "servicebus"
+                                    }
+                                },
+                                "method": "delete",
+                                "path": "/@{encodeURIComponent(encodeURIComponent('user-updated'))}/messages/complete",
+                                "queries": {
+                                    "lockToken": "@triggerBody()?['LockToken']",
+                                    "queueType": "Main",
+                                    "sessionId": ""
+                                }
+                            },
+                            "runAfter": {
+                                "Save_to_Blob_Storage": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "ApiConnection"
+                        },
+                        "Save_to_Blob_Storage": {
+                            "inputs": {
+                                "parameters": {
+                                    "blobName": "@{utcNow('yyyy-MM')}/@{workflow().run.name}.json",
+                                    "containerName": "target",
+                                    "content": "@body('Parse_message')"
+                                },
+                                "serviceProviderConfiguration": {
+                                    "connectionName": "AzureBlob",
+                                    "operationId": "uploadBlob",
+                                    "serviceProviderId": "/serviceProviders/AzureBlob"
+                                }
+                            },
+                            "runAfter": {},
+                            "type": "ServiceProvider"
+                        }
+                    }
+                },
+                "expression": {
+                    "and": [
+                        {
+                            "contains": [
+                                "[\"06\", \"07\", \"08, \"09\"]",
+                                "@substring(body('Parse_message')?['phoneNumber'], sub(length(body('Parse_message')?['phoneNumber']), 2))"
+                            ]
+                        }
+                    ]
+                },
+                "runAfter": {
+                    "Parse_message": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "If"
             },
             "Parse_message": {
                 "inputs": {
@@ -74,168 +247,11 @@
                     }
                 },
                 "runAfter": {
-                    "Delay_to_flush_asynchronous_tracing": [
+                    "Delay": [
                         "Succeeded"
                     ]
                 },
                 "type": "ParseJson"
-            },
-            "Save_to_Blob_Storage": {
-                "inputs": {
-                    "parameters": {
-                        "blobName": "@{utcNow('yyyy-MM')}/@{workflow().run.name}.json",
-                        "containerName": "target",
-                        "content": "@body('Parse_message')"
-                    },
-                    "serviceProviderConfiguration": {
-                        "connectionName": "AzureBlob",
-                        "operationId": "uploadBlob",
-                        "serviceProviderId": "/serviceProviders/AzureBlob"
-                    }
-                },
-                "runAfter": {
-                    "Switch_to_simulate_delivery_attempt_to_target_system": [
-                        "Succeeded"
-                    ]
-                },
-                "type": "ServiceProvider"
-            },
-            "Switch_to_simulate_delivery_attempt_to_target_system": {
-                "cases": {
-                    "Invalid_message_(09)": {
-                        "actions": {
-                            "Dead-letter_the_message_in_a_queue": {
-                                "inputs": {
-                                    "host": {
-                                        "connection": {
-                                            "referenceName": "servicebus"
-                                        }
-                                    },
-                                    "method": "post",
-                                    "path": "/@{encodeURIComponent(encodeURIComponent('user-updated'))}/messages/deadletter",
-                                    "queries": {
-                                        "deadLetterErrorDescription": "Missing required fields",
-                                        "deadLetterReason": "Invalid message",
-                                        "lockToken": "@triggerBody()?['LockToken']",
-                                        "sessionId": ""
-                                    }
-                                },
-                                "runAfter": {},
-                                "type": "ApiConnection"
-                            },
-                            "Terminate_after_SubscriberDeliveryFailed_InvalidMessage": {
-                                "inputs": {
-                                    "runError": {
-                                        "code": "SubscriberDeliveryFailed_InvalidMessage",
-                                        "message": "Invalid message. Message has been dead-lettered."
-                                    },
-                                    "runStatus": "Failed"
-                                },
-                                "runAfter": {
-                                    "Dead-letter_the_message_in_a_queue": [
-                                        "Succeeded"
-                                    ]
-                                },
-                                "type": "Terminate"
-                            }
-                        },
-                        "case": "09"
-                    },
-                    "Missing_dependency_(07)": {
-                        "actions": {
-                            "If_first_attempt": {
-                                "actions": {
-                                    "Terminate_after_SubscriberDeliveryFailed_MissingDependency": {
-                                        "inputs": {
-                                            "runError": {
-                                                "code": "SubscriberDeliveryFailed_MissingDependency",
-                                                "message": "Dependency in target system is not available. DeliveryCount: @{triggerBody()?['Properties']?['DeliveryCount']}. Message has not been settled. If max delivery count has not been reached, a retry is expected. "
-                                            },
-                                            "runStatus": "Failed"
-                                        },
-                                        "runAfter": {},
-                                        "type": "Terminate"
-                                    }
-                                },
-                                "expression": {
-                                    "and": [
-                                        {
-                                            "equals": [
-                                                "@{triggerBody()?['Properties']?['DeliveryCount']}",
-                                                "1"
-                                            ]
-                                        }
-                                    ]
-                                },
-                                "runAfter": {},
-                                "type": "If"
-                            }
-                        },
-                        "case": "07"
-                    },
-                    "Stale_message_(08)": {
-                        "actions": {
-                            "Complete_the_stale_message_in_a_queue": {
-                                "inputs": {
-                                    "host": {
-                                        "connection": {
-                                            "referenceName": "servicebus"
-                                        }
-                                    },
-                                    "method": "delete",
-                                    "path": "/@{encodeURIComponent(encodeURIComponent('user-updated'))}/messages/complete",
-                                    "queries": {
-                                        "lockToken": "@triggerBody()?['LockToken']",
-                                        "queueType": "Main",
-                                        "sessionId": ""
-                                    }
-                                },
-                                "runAfter": {},
-                                "type": "ApiConnection"
-                            },
-                            "Terminate_after_SubscriberDeliveryDiscardedStaleMessage": {
-                                "inputs": {
-                                    "runStatus": "Cancelled"
-                                },
-                                "runAfter": {
-                                    "Complete_the_stale_message_in_a_queue": [
-                                        "Succeeded"
-                                    ]
-                                },
-                                "type": "Terminate"
-                            }
-                        },
-                        "case": "08"
-                    },
-                    "Unable_to_reach_target_system_(06)": {
-                        "actions": {
-                            "Terminate_after_SubscriberDeliveryFailed_UnreachableTarget": {
-                                "description": "Terminate and do not settle the message for a retry or automatic dead-lettering",
-                                "inputs": {
-                                    "runError": {
-                                        "code": "SubscriberDeliveryFailed_UnreachableTarget",
-                                        "message": "Target system is unreachable. DeliveryCount: @{triggerBody()?['Properties']?['DeliveryCount']}. Message has not been settled. If max delivery count has not been reached, a retry is expected. "
-                                    },
-                                    "runStatus": "Failed"
-                                },
-                                "runAfter": {},
-                                "type": "Terminate"
-                            }
-                        },
-                        "case": "06"
-                    }
-                },
-                "default": {
-                    "actions": {}
-                },
-                "description": "Simulate delivery attempt to target system",
-                "expression": "@{substring(body('Parse_message')?['phoneNumber'], sub(length(body('Parse_message')?['phoneNumber']), 2))}",
-                "runAfter": {
-                    "Parse_message": [
-                        "Succeeded"
-                    ]
-                },
-                "type": "Switch"
             },
             "Trace_workflow_metadata": {
                 "inputs": {
@@ -253,7 +269,7 @@
         "triggers": {
             "When_a_message_is_received_in_a_queue_(peek-lock)": {
                 "correlation": {
-                    "clientTrackingId": "@{coalesce(triggerBody()['Properties']?['ClientTrackingId'], guid())}"
+                    "clientTrackingId": "@{if(empty(triggerBody()), guid(), triggerBody()['Properties']?['ClientTrackingId'])}"
                 },
                 "inputs": {
                     "host": {
