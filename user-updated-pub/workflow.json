@@ -3,30 +3,9 @@
         "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
         "actions": {
             "For_each_message_in_batch": {
-                "type": "Foreach",
-                "foreach": "@body('Parse_Request_Payload')?['data']",
                 "actions": {
-                    "Enrich_message": {
-                        "type": "Workflow",
-                        "inputs": {
-                            "host": {
-                                "workflow": {
-                                    "id": "user-updated-pub-enricher"
-                                }
-                            },
-                            "headers": {
-                                "x-client-tracking-id ": "@body('Parse_message')?['email']"
-                            },
-                            "body": "@body('Parse_message')"
-                        },
-                        "runAfter": {
-                            "Parse_message": [
-                                "Succeeded"
-                            ]
-                        }
-                    },
                     "Parse_message": {
-                        "type": "ParseJson",
+                        "description": "Parse each individual record",
                         "inputs": {
                             "content": "@items('For_each_message_in_batch')",
                             "schema": {
@@ -60,45 +39,44 @@
                             }
                         },
                         "runAfter": {},
-                        "description": "Parse each individual record"
+                        "type": "ParseJson"
                     },
                     "Send_message": {
-                        "type": "ApiConnection",
                         "inputs": {
-                            "host": {
-                                "connection": {
-                                    "referenceName": "servicebus_1"
-                                }
-                            },
-                            "method": "post",
                             "body": {
-                                "ContentData": "@{base64(outputs('Enrich_message')?['body'])}",
+                                "ContentData": "@{base64(body('Parse_message'))}",
                                 "ContentType": "application/json",
+                                "MessageId": "@{body('Parse_Request_Payload')?['id']}|@{body('Parse_message')?['id']}",
                                 "Properties": {
                                     "BatchId": "@{body('Parse_Request_Payload')?['id']}",
                                     "ClientTrackingId": "@{body('Parse_message')?['email']}",
                                     "CorrelationWorkflowRunId": "@{workflow()?['run']?['name']}",
                                     "EntityId": "@{body('Parse_message')?['id']}"
-                                },
-                                "MessageId": "@{body('Parse_Request_Payload')?['id']}|@{body('Parse_message')?['id']}"
+                                }
+                            },
+                            "host": {
+                                "connection": {
+                                    "referenceName": "servicebus"
+                                }
+                            },
+                            "method": "post",
+                            "parameters": {
+                                "entityName": "user-updated",
+                                "message": {
+                                    "UserProperties": {
+                                        "ClientTrackingId": "@body('Parse_message')?['email']",
+                                        "CorrelationWorkflowRunId": "@workflow()?['run']?['name']",
+                                        "EntityId": "@body('Parse_Request_Payload')['id']"
+                                    },
+                                    "contentData": "@items('For_each_message_in_batch')",
+                                    "contentType": "application/json",
+                                    "correlationId": "@workflow()?['run']?['name']",
+                                    "messageId": "@{body('Parse_Request_Payload')?['id']}|@{body('Parse_message')?['id']}"
+                                }
                             },
                             "path": "/@{encodeURIComponent(encodeURIComponent('user-updated'))}/messages",
                             "queries": {
                                 "systemProperties": "None"
-                            },
-                            "parameters": {
-                                "entityName": "user-updated",
-                                "message": {
-                                    "contentData": "@outputs('Enrich_message')?['body']",
-                                    "contentType": "application/json",
-                                    "UserProperties": {
-                                        "BatchId": "@{body('Parse_Request_Payload')['id']}",
-                                        "ClientTrackingId": "@{body('Parse_message')?['email']}",
-                                        "CorrelationWorkflowRunId": "@{workflow()?['run']?['name']}",
-                                        "EntityId": "@{body('Parse_message')?['id']}"
-                                    },
-                                    "messageId": "@{body('Parse_Request_Payload')?['id']}|@{body('Parse_message')?['id']}"
-                                }
                             },
                             "serviceProviderConfiguration": {
                                 "connectionName": "serviceBus",
@@ -107,20 +85,22 @@
                             }
                         },
                         "runAfter": {
-                            "Enrich_message": [
+                            "Parse_message": [
                                 "Succeeded"
                             ]
-                        }
+                        },
+                        "type": "ApiConnection"
                     }
                 },
+                "foreach": "@body('Parse_Request_Payload')?['data']",
                 "runAfter": {
                     "Parse_Request_Payload": [
                         "Succeeded"
                     ]
-                }
+                },
+                "type": "Foreach"
             },
             "Parse_Request_Payload": {
-                "type": "ParseJson",
                 "inputs": {
                     "content": "@triggerBody()",
                     "schema": {
@@ -204,113 +184,114 @@
                     "Trace_workflow_metadata": [
                         "Succeeded"
                     ]
-                }
+                },
+                "type": "ParseJson"
             },
             "Return_202_response": {
-                "type": "Response",
-                "kind": "http",
                 "inputs": {
-                    "statusCode": 202,
                     "body": {
                         "ActivityId": "@{workflow().run.name}",
                         "Message": "Accepted",
                         "StatusCode": 202
-                    }
+                    },
+                    "statusCode": 202
                 },
+                "kind": "http",
                 "runAfter": {
                     "For_each_message_in_batch": [
                         "Succeeded"
                     ]
-                }
+                },
+                "type": "Response"
             },
             "Return_400_BadRequest_response": {
-                "type": "Response",
-                "kind": "http",
                 "inputs": {
-                    "statusCode": 400,
                     "body": {
                         "ActivityId": "@{workflow().run.name}",
                         "Message": "Bad request. Invalid message.",
                         "StatusCode": 400
-                    }
+                    },
+                    "statusCode": 400
                 },
+                "kind": "http",
                 "runAfter": {
                     "Parse_Request_Payload": [
                         "Failed"
                     ]
-                }
+                },
+                "type": "Response"
             },
             "Return_500_response": {
-                "type": "Response",
-                "kind": "http",
                 "inputs": {
-                    "statusCode": 500,
                     "body": {
                         "ActivityId": "@{workflow().run.name}",
                         "Message": "Internal Server Error",
                         "StatusCode": 500
-                    }
+                    },
+                    "statusCode": 500
                 },
+                "kind": "http",
                 "runAfter": {
                     "For_each_message_in_batch": [
                         "FAILED",
                         "TIMEDOUT"
                     ]
-                }
+                },
+                "type": "Response"
             },
             "Terminate_as_Failed_(PublisherDeliveryFailed_InternalException)": {
-                "type": "Terminate",
                 "inputs": {
-                    "runStatus": "Failed",
                     "runError": {
                         "code": "PublisherDeliveryFailed_InternalException",
                         "message": "An exception occurred while processing the message for publishing."
-                    }
+                    },
+                    "runStatus": "Failed"
                 },
                 "runAfter": {
                     "Return_500_response": [
                         "Succeeded"
                     ]
-                }
+                },
+                "type": "Terminate"
             },
             "Terminate_as_Failed_(PublisherReceiptFailed_InvalidMessage)": {
-                "type": "Terminate",
                 "inputs": {
-                    "runStatus": "Failed",
                     "runError": {
                         "code": "PublisherReceiptFailed_InvalidMessage",
                         "message": "An exception occurred while receiving a message in publisher endpoint due to an invalid HTTP request. "
-                    }
+                    },
+                    "runStatus": "Failed"
                 },
                 "runAfter": {
                     "Return_400_BadRequest_response": [
                         "Succeeded"
                     ]
-                }
+                },
+                "type": "Terminate"
             },
             "Trace_workflow_metadata": {
-                "type": "Compose",
                 "inputs": {
                     "InterfaceId": "USER.SVC01.P01v1"
                 },
                 "runAfter": {},
                 "trackedProperties": {
                     "InterfaceId": "@{outputs('Trace_workflow_metadata')?['InterfaceId']}"
-                }
-            }
-        },
-        "triggers": {
-            "manual": {
-                "type": "Request",
-                "kind": "Http",
-                "inputs": {},
-                "correlation": {
-                    "clientTrackingId": "@coalesce(triggerBody()?['id'], guid())"
-                }
+                },
+                "type": "Compose"
             }
         },
         "contentVersion": "1.0.0.0",
-        "outputs": {}
+        "outputs": {},
+        "triggers": {
+            "manual": {
+                "correlation": {
+                    "clientTrackingId": "@{coalesce(triggerBody()?['id'], guid())}"
+                },
+                "inputs": {},
+                "kind": "Http",
+                "type": "Request"
+            }
+        }
     },
     "kind": "Stateful"
 }
